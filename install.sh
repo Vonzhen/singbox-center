@@ -69,7 +69,11 @@ detect_os() {
         INIT_SYSTEM="openrc"
       elif have_cmd apt-get; then
         PKG_MANAGER="apt"
-        INIT_SYSTEM="systemd"
+        if have_cmd systemctl && [ -d /run/systemd/system ]; then
+          INIT_SYSTEM="systemd"
+        else
+          die "Unsupported init system. systemd or OpenRC is required."
+        fi
       else
         die "Unsupported Linux distribution. Alpine, Ubuntu, or Debian is required."
       fi
@@ -103,6 +107,16 @@ check_node_version() {
   fi
 }
 
+install_pm2() {
+  if have_cmd pm2; then
+    log "pm2 is already installed: $(pm2 -v)"
+    return
+  fi
+
+  log "Installing pm2..."
+  npm install -g pm2
+}
+
 archive_url() {
   if [ -n "$REPO_ARCHIVE_URL" ]; then
     printf '%s\n' "$REPO_ARCHIVE_URL"
@@ -129,19 +143,30 @@ download_file() {
   fi
 }
 
-stop_service_if_exists() {
+stop_legacy_service_if_exists() {
   case "${INIT_SYSTEM:-}" in
     systemd)
       if systemctl list-unit-files "$APP_NAME.service" >/dev/null 2>&1; then
         systemctl stop "$APP_NAME" >/dev/null 2>&1 || true
+        systemctl disable "$APP_NAME" >/dev/null 2>&1 || true
+        rm -f "/etc/systemd/system/$APP_NAME.service"
+        systemctl daemon-reload
       fi
       ;;
     openrc)
       if [ -x "/etc/init.d/$APP_NAME" ]; then
         rc-service "$APP_NAME" stop >/dev/null 2>&1 || true
+        rc-update del "$APP_NAME" default >/dev/null 2>&1 || true
+        rm -f "/etc/init.d/$APP_NAME"
       fi
       ;;
   esac
+}
+
+stop_pm2_process_if_exists() {
+  if have_cmd pm2; then
+    pm2 delete "$APP_NAME" >/dev/null 2>&1 || true
+  fi
 }
 
 prepare_directories() {
@@ -181,7 +206,8 @@ deploy_source() {
   [ -n "$SRC_DIR" ] || die "Archive did not contain a source directory."
   [ -f "$SRC_DIR/package.json" ] || die "Archive does not look like a Node.js project."
 
-  stop_service_if_exists
+  stop_pm2_process_if_exists
+  stop_legacy_service_if_exists
 
   if [ -d "$INSTALL_DIR" ]; then
     BACKUP_DIR="$INSTALL_DIR.backup.$(date +%Y%m%d%H%M%S)"
@@ -219,81 +245,73 @@ EOF
   chmod +x "$RUNNER_FILE"
 }
 
-write_systemd_service() {
-  cat > "/etc/systemd/system/$APP_NAME.service" <<EOF
-[Unit]
-Description=sing-box config center
-After=network-online.target
-Wants=network-online.target
-
-[Service]
-Type=simple
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$RUNNER_FILE
-Restart=always
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-  systemctl daemon-reload
-  systemctl enable --now "$APP_NAME"
+start_pm2_process() {
+  log "Starting app with pm2..."
+  pm2 start "$RUNNER_FILE" \
+    --interpreter /bin/sh \
+    --name "$APP_NAME" \
+    --time \
+    --output "$LOG_DIR/$APP_NAME.out.log" \
+    --error "$LOG_DIR/$APP_NAME.err.log"
 }
 
-write_openrc_service() {
-  cat > "/etc/init.d/$APP_NAME" <<EOF
+write_openrc_pm2_service() {
+  PM2_BIN="$(command -v pm2)"
+  cat > /etc/init.d/pm2-root <<EOF
 #!/sbin/openrc-run
 
-name="$APP_NAME"
-description="sing-box config center"
-command="$RUNNER_FILE"
-command_args=""
-directory="$INSTALL_DIR"
+name="pm2-root"
+description="pm2 process manager for root"
+command="$PM2_BIN"
 command_user="root"
-supervisor="supervise-daemon"
-output_log="$LOG_DIR/$APP_NAME.log"
-error_log="$LOG_DIR/$APP_NAME.err"
+pidfile="/root/.pm2/pm2.pid"
 
 depend() {
   need net
 }
 
-start_pre() {
-  checkpath -d -m 0755 "$DATA_DIR"
-  checkpath -d -m 0755 "$LOG_DIR"
+start() {
+  ebegin "Starting pm2"
+  HOME=/root "\$command" resurrect
+  eend \$?
+}
+
+stop() {
+  ebegin "Stopping pm2"
+  HOME=/root "\$command" kill
+  eend \$?
 }
 EOF
-
-  chmod +x "/etc/init.d/$APP_NAME"
-  rc-update add "$APP_NAME" default
-  rc-service "$APP_NAME" restart
+  chmod +x /etc/init.d/pm2-root
+  rc-update add pm2-root default
 }
 
-install_service() {
-  log "Installing service for $INIT_SYSTEM..."
+install_pm2_startup() {
+  log "Saving pm2 process list..."
+  pm2 save
+
+  log "Configuring pm2 startup for $INIT_SYSTEM..."
   case "$INIT_SYSTEM" in
     systemd)
-      write_systemd_service
+      pm2 startup systemd -u root --hp /root >/dev/null 2>&1 || {
+        log "pm2 startup failed. The app is running now, but boot startup may need manual setup."
+      }
       ;;
     openrc)
-      write_openrc_service
+      write_openrc_pm2_service
       ;;
     *)
-      die "Unsupported init system: $INIT_SYSTEM"
+      log "Unknown init system for pm2 startup: $INIT_SYSTEM"
       ;;
   esac
 }
 
 print_status() {
-  case "$INIT_SYSTEM" in
-    systemd)
-      systemctl --no-pager status "$APP_NAME" || true
-      ;;
-    openrc)
-      rc-service "$APP_NAME" status || true
-      ;;
-  esac
+  if have_cmd pm2; then
+    pm2 status "$APP_NAME" || true
+  else
+    log "pm2 is not installed."
+  fi
 }
 
 print_done() {
@@ -302,14 +320,9 @@ print_done() {
   log "Env file: $ENV_FILE"
   log "Data dir: $DATA_DIR"
 
-  case "$INIT_SYSTEM" in
-    systemd)
-      log "Logs: journalctl -u $APP_NAME -f"
-      ;;
-    openrc)
-      log "Logs: tail -f $LOG_DIR/$APP_NAME.log"
-      ;;
-  esac
+  log "Status: pm2 status $APP_NAME"
+  log "Logs: pm2 logs $APP_NAME"
+  log "Restart: pm2 restart $APP_NAME"
 }
 
 do_install_or_update() {
@@ -317,31 +330,25 @@ do_install_or_update() {
   detect_os
   install_packages
   check_node_version
+  install_pm2
   prepare_directories
   write_env_file
   deploy_source
   install_node_dependencies
   write_runner
-  install_service
+  start_pm2_process
+  install_pm2_startup
   print_done
 }
 
 do_uninstall() {
   need_root
   detect_os
-  stop_service_if_exists
-
-  case "$INIT_SYSTEM" in
-    systemd)
-      systemctl disable "$APP_NAME" >/dev/null 2>&1 || true
-      rm -f "/etc/systemd/system/$APP_NAME.service"
-      systemctl daemon-reload
-      ;;
-    openrc)
-      rc-update del "$APP_NAME" default >/dev/null 2>&1 || true
-      rm -f "/etc/init.d/$APP_NAME"
-      ;;
-  esac
+  stop_pm2_process_if_exists
+  stop_legacy_service_if_exists
+  if have_cmd pm2; then
+    pm2 save >/dev/null 2>&1 || true
+  fi
 
   rm -f "$RUNNER_FILE"
   rm -rf "$INSTALL_DIR"
@@ -349,7 +356,7 @@ do_uninstall() {
     rm -rf "$CONFIG_DIR" "$DATA_DIR" "$LOG_DIR"
     log "Removed program, config, data, and logs."
   else
-    log "Removed program and service. Config and data were kept."
+    log "Removed program and pm2 process. Config and data were kept."
     log "Use '$0 uninstall --purge' to remove config and data too."
   fi
 }

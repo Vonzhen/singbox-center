@@ -2,6 +2,7 @@
 
 This project can be installed from GitHub source archives with the root `install.sh`.
 It supports Alpine, Ubuntu, and Debian.
+The app process is managed by pm2.
 
 ## Upload to GitHub
 
@@ -48,9 +49,9 @@ curl -fsSL https://raw.githubusercontent.com/myorg/myrepo/main/install.sh | REPO
 - Installs the app to `/opt/singbox-center`.
 - Creates `/etc/singbox-center/singbox-center.env`.
 - Stores data in `/var/lib/singbox-center`.
-- Creates a systemd service on Ubuntu/Debian.
-- Creates an OpenRC service on Alpine.
-- Starts the service and enables it at boot.
+- Installs pm2.
+- Starts the app with pm2.
+- Configures pm2 startup for systemd or OpenRC.
 
 ## Paths
 
@@ -75,15 +76,21 @@ Data and existing environment configuration are kept.
 curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/main/install.sh | sh -s -- status
 ```
 
+Or on the server:
+
+```sh
+pm2 status singbox-center
+```
+
 ## Uninstall
 
-Remove the program and service, but keep config and data:
+Remove the program and pm2 process, but keep config and data:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/main/install.sh | sh -s -- uninstall
 ```
 
-Remove program, service, config, data, and logs:
+Remove program, pm2 process, config, data, and logs:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/main/install.sh | sh -s -- uninstall --purge
@@ -91,17 +98,11 @@ curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/main/instal
 
 ## Logs
 
-Ubuntu/Debian:
-
 ```sh
-journalctl -u singbox-center -f
+pm2 logs singbox-center
 ```
 
-Alpine:
-
-```sh
-tail -f /var/log/singbox-center/singbox-center.log
-```
+Log files are also stored in `/var/log/singbox-center`.
 
 ## Environment
 
@@ -125,11 +126,16 @@ GITHUB_TOKEN=
 Restart after changing the file:
 
 ```sh
-systemctl restart singbox-center
+pm2 restart singbox-center
 ```
 
-or on Alpine:
+## pm2 commands
 
 ```sh
-rc-service singbox-center restart
+pm2 status singbox-center
+pm2 logs singbox-center
+pm2 restart singbox-center
+pm2 stop singbox-center
+pm2 delete singbox-center
+pm2 save
 ```
