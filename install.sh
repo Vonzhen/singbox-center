@@ -4,7 +4,8 @@ set -eu
 APP_NAME="${APP_NAME:-singbox-center}"
 REPO_OWNER="${REPO_OWNER:-}"
 REPO_NAME="${REPO_NAME:-singbox-center}"
-REPO_BRANCH="${REPO_BRANCH:-main}"
+REPO_BRANCH_INPUT="${REPO_BRANCH:-}"
+REPO_BRANCH="${REPO_BRANCH_INPUT:-main}"
 REPO_ARCHIVE_URL="${REPO_ARCHIVE_URL:-}"
 
 INSTALL_DIR="${INSTALL_DIR:-/opt/singbox-center}"
@@ -118,16 +119,11 @@ install_pm2() {
 }
 
 archive_url() {
-  if [ -n "$REPO_ARCHIVE_URL" ]; then
-    printf '%s\n' "$REPO_ARCHIVE_URL"
-    return
-  fi
-
   if [ -z "$REPO_OWNER" ]; then
     die "REPO_OWNER is required. Example: REPO_OWNER=yourname sh install.sh"
   fi
 
-  printf 'https://github.com/%s/%s/archive/refs/heads/%s.tar.gz\n' "$REPO_OWNER" "$REPO_NAME" "$REPO_BRANCH"
+  printf 'https://github.com/%s/%s/archive/refs/heads/%s.tar.gz\n' "$REPO_OWNER" "$REPO_NAME" "$1"
 }
 
 download_file() {
@@ -192,12 +188,31 @@ EOF
 }
 
 deploy_source() {
-  URL="$(archive_url)"
   TMP_DIR="$(mktemp -d)"
   ARCHIVE="$TMP_DIR/source.tar.gz"
 
-  log "Downloading source: $URL"
-  download_file "$URL" "$ARCHIVE"
+  if [ -n "$REPO_ARCHIVE_URL" ]; then
+    log "Downloading source: $REPO_ARCHIVE_URL"
+    download_file "$REPO_ARCHIVE_URL" "$ARCHIVE"
+  else
+    URL="$(archive_url "$REPO_BRANCH")"
+    log "Downloading source: $URL"
+    if ! download_file "$URL" "$ARCHIVE"; then
+      if [ -z "$REPO_BRANCH_INPUT" ]; then
+        if [ "$REPO_BRANCH" = "main" ]; then
+          FALLBACK_BRANCH="master"
+        else
+          FALLBACK_BRANCH="main"
+        fi
+        FALLBACK_URL="$(archive_url "$FALLBACK_BRANCH")"
+        log "Download failed. Trying fallback branch: $FALLBACK_BRANCH"
+        download_file "$FALLBACK_URL" "$ARCHIVE"
+        REPO_BRANCH="$FALLBACK_BRANCH"
+      else
+        die "Failed to download source archive for branch: $REPO_BRANCH"
+      fi
+    fi
+  fi
 
   mkdir -p "$TMP_DIR/extract"
   tar -xzf "$ARCHIVE" -C "$TMP_DIR/extract"

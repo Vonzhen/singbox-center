@@ -35,6 +35,8 @@ If your default branch is `master`:
 curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/master/install.sh | REPO_OWNER=yourname REPO_BRANCH=master sh
 ```
 
+If `REPO_BRANCH` is not set, the installer tries `main` first and then falls back to `master`.
+
 For an organization or a different repository name:
 
 ```sh

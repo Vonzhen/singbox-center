@@ -46,6 +46,8 @@ wget -qO- https://raw.githubusercontent.com/yourname/singbox-center/main/install
 curl -fsSL https://raw.githubusercontent.com/yourname/singbox-center/master/install.sh | REPO_OWNER=yourname REPO_BRANCH=master sh
 ```
 
+如果没有显式设置 `REPO_BRANCH`，安装脚本会先尝试 `main`，失败后自动尝试 `master`。
+
 如果仓库名不是 `singbox-center`：
 
 ```sh
