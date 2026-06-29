@@ -131,7 +131,7 @@ export function renderHTML() {
             <div class="text-xs text-slate-500 mt-1">{{ dashboard.generation && dashboard.generation.updated_at || '暂无记录' }}</div>
           </div>
           <div v-if="user.role === 'owner'" class="panel mb-0">
-            <div class="text-xs text-slate-400 mb-2">GitHub 模板</div>
+            <div class="text-xs text-slate-400 mb-2">远程模板</div>
             <div class="text-3xl font-bold" :class="dashboard.template && dashboard.template.ok ? 'text-green-400' : 'text-amber-400'">{{ dashboard.template && dashboard.template.ok ? '已缓存' : '待检查' }}</div>
             <div class="text-xs text-slate-500 mt-1">{{ dashboard.template && dashboard.template.content_hash ? dashboard.template.content_hash.slice(0, 8) : '无版本' }}</div>
           </div>
@@ -266,7 +266,7 @@ export function renderHTML() {
           <div class="flex justify-between gap-4 mb-4 border-b border-slate-700 pb-2 mobile-stack">
             <div>
               <h2 class="text-xl font-semibold text-white">🧠 模板来源</h2>
-              <p class="text-sm text-slate-400 mt-1">可使用 GitHub 模板，也可将模板导入本地 SQLite 后作为内置模板使用。</p>
+              <p class="text-sm text-slate-400 mt-1">可使用远程模板，也可将模板导入本地 SQLite 后作为内置模板使用。</p>
             </div>
             <div class="flex gap-2">
               <button v-if="globalConfig.TEMPLATE_MODE !== 'kv'" @click="checkTemplate(false)" :disabled="templateChecking" class="px-3 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg text-sm">检查模板</button>
@@ -276,26 +276,18 @@ export function renderHTML() {
           </div>
           <div class="mb-4 flex gap-3 mobile-stack">
             <label class="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-sm">
-              <input type="radio" value="github" v-model="globalConfig.TEMPLATE_MODE" class="matrix-check">
-              GitHub 仓库模板
+              <input type="radio" value="remote" v-model="globalConfig.TEMPLATE_MODE" class="matrix-check">
+              远程模板
             </label>
             <label class="flex items-center gap-2 bg-slate-900/60 border border-slate-800 rounded-lg px-3 py-2 text-sm">
               <input type="radio" value="kv" v-model="globalConfig.TEMPLATE_MODE" class="matrix-check">
               本地内置模板
             </label>
           </div>
-          <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div v-if="globalConfig.TEMPLATE_MODE !== 'kv'" class="grid grid-cols-1 gap-4">
             <div>
-              <label class="block text-sm text-slate-400 mb-1">GitHub 用户名</label>
-              <input type="text" v-model="globalConfig.GITHUB_USER" class="input-box" placeholder="你的 GitHub ID">
-            </div>
-            <div>
-              <label class="block text-sm text-slate-400 mb-1">仓库名 (REPO)</label>
-              <input type="text" v-model="globalConfig.GITHUB_REPO" class="input-box" placeholder="例如: singbox-profiles">
-            </div>
-            <div>
-              <label class="block text-sm text-slate-400 mb-1">分支名称</label>
-              <input type="text" v-model="globalConfig.GITHUB_BRANCH" class="input-box" placeholder="master 或 main">
+              <label class="block text-sm text-slate-400 mb-1">远程模板地址</label>
+              <input type="text" v-model="globalConfig.TEMPLATE_REMOTE_URL" class="input-box font-mono text-sm" placeholder="https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json">
             </div>
           </div>
           <div v-if="templateStatus.message" class="mt-4 bg-slate-900/60 border border-slate-800 rounded-lg p-3 text-sm">
@@ -526,8 +518,8 @@ export function renderHTML() {
           builtinEditorStats: { lines: 0, size: 0 },
           sub_links: [],
           globalConfig: {
-            GITHUB_USER: "", GITHUB_REPO: "", GITHUB_BRANCH: "master",
-            TEMPLATE_MODE: "github",
+            TEMPLATE_REMOTE_URL: "https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json",
+            TEMPLATE_MODE: "remote",
             BANNED_KEYWORDS: "",
             URLTEST_PARAMS: { url: "", interval: "", tolerance: 150 }
           },
@@ -626,10 +618,8 @@ export function renderHTML() {
             });
             
             if (this.user.role === 'owner') {
-              this.globalConfig.GITHUB_USER = data.GITHUB_USER || "";
-              this.globalConfig.GITHUB_REPO = data.GITHUB_REPO || "";
-              this.globalConfig.GITHUB_BRANCH = data.GITHUB_BRANCH || "master";
-              this.globalConfig.TEMPLATE_MODE = data.TEMPLATE_MODE || "github";
+              this.globalConfig.TEMPLATE_REMOTE_URL = data.TEMPLATE_REMOTE_URL || "https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json";
+              this.globalConfig.TEMPLATE_MODE = data.TEMPLATE_MODE || "remote";
               this.globalConfig.BANNED_KEYWORDS = data.BANNED_KEYWORDS || "";
               this.globalConfig.URLTEST_PARAMS = data.URLTEST_PARAMS || { url: "", interval: "", tolerance: 150 };
               if (data.REGION_KEYWORDS) {
@@ -665,9 +655,7 @@ export function renderHTML() {
           }
           if (this.user.role === 'owner') {
             if (payload.TEMPLATE_MODE !== 'kv') {
-              if (!payload.GITHUB_USER?.trim()) return "请填写 GitHub 用户名。";
-              if (!payload.GITHUB_REPO?.trim()) return "请填写 GitHub 仓库名。";
-              if (!payload.GITHUB_BRANCH?.trim()) return "请填写 GitHub 分支名。";
+              if (!String(payload.TEMPLATE_REMOTE_URL || "").trim()) return "请填写远程模板地址。";
             }
             if (!/^https?:\\/\\//i.test(payload.URLTEST_PARAMS?.url || "")) return "测速 URL 格式不正确。";
             if (!payload.URLTEST_PARAMS?.interval) return "请填写 UrlTest 间隔。";
@@ -686,9 +674,7 @@ export function renderHTML() {
               finalRegions[k] = this.regionStr[k].split(',').map(s => s.trim()).filter(s => s.length > 0);
             }
             payload.REGION_KEYWORDS = finalRegions;
-            payload.GITHUB_USER = this.globalConfig.GITHUB_USER;
-            payload.GITHUB_REPO = this.globalConfig.GITHUB_REPO;
-            payload.GITHUB_BRANCH = this.globalConfig.GITHUB_BRANCH;
+            payload.TEMPLATE_REMOTE_URL = this.globalConfig.TEMPLATE_REMOTE_URL;
             payload.TEMPLATE_MODE = this.globalConfig.TEMPLATE_MODE;
             payload.BANNED_KEYWORDS = this.globalConfig.BANNED_KEYWORDS;
             payload.URLTEST_PARAMS = this.globalConfig.URLTEST_PARAMS;

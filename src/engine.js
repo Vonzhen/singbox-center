@@ -16,11 +16,21 @@ function parseRule(ruleStr) {
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 10000) {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort("Request timeout"), timeoutMs);
+  const timeoutId = setTimeout(() => controller.abort(new Error(`请求超时：${timeoutMs}ms`)), timeoutMs);
   try {
     return await fetch(url, { ...options, signal: controller.signal });
   } finally {
     clearTimeout(timeoutId);
+  }
+}
+
+function errorMessage(error) {
+  if (error instanceof Error && error.message) return error.message;
+  if (typeof error === "string") return error;
+  try {
+    return JSON.stringify(error);
+  } catch (e) {
+    return String(error);
   }
 }
 
@@ -39,23 +49,18 @@ async function sha256Text(text) {
 }
 
 function getTemplateSource(globalConfig) {
-  const user = globalConfig.GITHUB_USER;
-  const repo = globalConfig.GITHUB_REPO;
-  const branch = globalConfig.GITHUB_BRANCH || "master";
-  if (!user || !repo) {
-    throw new Error("请先在管理面板中配妥 GitHub 仓库参数。");
+  const url = String(globalConfig.TEMPLATE_REMOTE_URL || "").trim();
+  if (!url) {
+    throw new Error("请先在管理面板中配置远程模板地址。");
   }
   return {
-    user,
-    repo,
-    branch,
-    path: "profiles/main-profile.json",
-    url: `https://raw.githubusercontent.com/${user}/${repo}/${branch}/profiles/main-profile.json`
+    type: "remote",
+    url
   };
 }
 
 function isSameTemplateSource(a, b) {
-  return !!a && !!b && a.user === b.user && a.repo === b.repo && a.branch === b.branch && a.path === b.path;
+  return !!a && !!b && a.type === b.type && a.url === b.url;
 }
 
 export function validateTemplate(config) {
@@ -95,7 +100,7 @@ function cloneJson(value) {
 }
 
 export async function getTemplate(env, globalConfig, options = {}) {
-  if ((globalConfig.TEMPLATE_MODE || "github") === "kv") {
+  if ((globalConfig.TEMPLATE_MODE || "remote") === "kv") {
     const builtin = await db.getBuiltinTemplate(env);
     if (!builtin?.content) {
       return {
@@ -126,6 +131,7 @@ export async function getTemplate(env, globalConfig, options = {}) {
         }
       };
     } catch (e) {
+      const message = errorMessage(e);
       return {
         config: null,
         status: {
@@ -134,7 +140,7 @@ export async function getTemplate(env, globalConfig, options = {}) {
           from_cache: true,
           checked_at: new Date().toISOString(),
           content_hash: builtin.content_hash || "",
-          message: `本地内置模板校验失败：${e.message}`
+          message: `本地内置模板校验失败：${message}`
         }
       };
     }
@@ -144,10 +150,6 @@ export async function getTemplate(env, globalConfig, options = {}) {
   const cache = await db.getTemplateCache(env);
   const cacheMatches = isSameTemplateSource(cache?.source, source);
   const headers = { "User-Agent": "SingBox-Config-Builder" };
-  if (globalConfig.GITHUB_TOKEN) {
-    headers["Authorization"] = `token ${globalConfig.GITHUB_TOKEN}`;
-    headers["Accept"] = "application/vnd.github.v3.raw";
-  }
   if (!options.forceRefresh && cacheMatches) {
     if (cache.etag) headers["If-None-Match"] = cache.etag;
     if (cache.last_modified) headers["If-Modified-Since"] = cache.last_modified;
@@ -160,17 +162,17 @@ export async function getTemplate(env, globalConfig, options = {}) {
         config: cloneJson(cache.content),
         status: {
           ok: true,
-          mode: "github",
+          mode: "remote",
           source,
           from_cache: true,
           checked_at: new Date().toISOString(),
           fetched_at: cache.fetched_at || null,
           content_hash: cache.content_hash || "",
-          message: "GitHub 模板未变化，已使用 KV 缓存。"
+          message: "远程模板未变化，已使用 KV 缓存。"
         }
       };
     }
-    if (!res.ok) throw new Error(`GitHub HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`远程模板 HTTP ${res.status}`);
 
     const text = await res.text();
     const content = JSON.parse(text);
@@ -191,29 +193,30 @@ export async function getTemplate(env, globalConfig, options = {}) {
       config: cloneJson(content),
       status: {
         ok: true,
-        mode: "github",
+        mode: "remote",
         source,
         from_cache: false,
         checked_at: new Date().toISOString(),
         fetched_at: new Date().toISOString(),
         content_hash: contentHash,
-        message: cacheMatches && cache?.content_hash === contentHash ? "GitHub 模板内容未变化，缓存时间已刷新。" : "GitHub 模板已拉取并写入 KV 缓存。"
+        message: cacheMatches && cache?.content_hash === contentHash ? "远程模板内容未变化，缓存时间已刷新。" : "远程模板已拉取并写入 KV 缓存。"
       }
     };
   } catch (e) {
+    const message = errorMessage(e);
     if (cacheMatches && cache?.content) {
       return {
         config: cloneJson(cache.content),
         status: {
           ok: true,
-          mode: "github",
+          mode: "remote",
           source,
           from_cache: true,
           stale: true,
           checked_at: new Date().toISOString(),
           fetched_at: cache.fetched_at || null,
           content_hash: cache.content_hash || "",
-          message: `GitHub 模板检查失败，已使用 KV 旧缓存：${e.message}`
+          message: `远程模板检查失败，已使用 KV 旧缓存：${message}`
         }
       };
     }
@@ -221,20 +224,20 @@ export async function getTemplate(env, globalConfig, options = {}) {
       config: null,
       status: {
         ok: false,
-        mode: "github",
+        mode: "remote",
         source,
         from_cache: false,
         checked_at: new Date().toISOString(),
         fetched_at: cache?.fetched_at || null,
         content_hash: cache?.content_hash || "",
-        message: `GitHub 模板不可用：${e.message}`
+        message: `远程模板不可用：${message}`
       }
     };
   }
 }
 
 export async function getTemplateCacheStatus(env, globalConfig) {
-  if ((globalConfig.TEMPLATE_MODE || "github") === "kv") {
+  if ((globalConfig.TEMPLATE_MODE || "remote") === "kv") {
     const builtin = await db.getBuiltinTemplate(env);
     return {
       ok: !!builtin?.content,
@@ -252,14 +255,14 @@ export async function getTemplateCacheStatus(env, globalConfig) {
   try {
     source = getTemplateSource(globalConfig);
   } catch (e) {
-    return { ok: false, configured: false, message: e.message };
+    return { ok: false, configured: false, message: errorMessage(e) };
   }
   const cache = await db.getTemplateCache(env);
   const cacheMatches = isSameTemplateSource(cache?.source, source);
   return {
     ok: !!(cacheMatches && cache?.content),
     configured: true,
-    mode: "github",
+    mode: "remote",
     source,
     from_cache: !!(cacheMatches && cache?.content),
     fetched_at: cacheMatches ? cache.fetched_at || null : null,
@@ -356,11 +359,12 @@ export async function testSubscription(sub, globalConfig) {
       warnings: validNodes.length === 0 ? ["没有可用节点。"] : []
     };
   } catch (e) {
+    const message = errorMessage(e);
     return {
       success: false,
       name: sub.name || "未命名订阅",
       duration_ms: Date.now() - startedAt,
-      error: e.message
+      error: message
     };
   }
 }
@@ -384,17 +388,17 @@ export async function generateConfig(userSubLinks, globalConfig, isDebug, env) {
     // ==========================================
     const templateResult = await getTemplate(env, globalConfig);
     if (!templateResult.status.ok || !templateResult.config) {
-      addStep("GitHub 模板", "error", templateResult.status.message, templateResult.status);
+      addStep("远程模板", "error", templateResult.status.message, templateResult.status);
       throw new Error(templateResult.status.message);
     }
     let config = templateResult.config;
     addStep(
-      "GitHub 模板",
+      "远程模板",
       templateResult.status.stale ? "warning" : "success",
       templateResult.status.message,
       templateResult.status
     );
-    log(`[GitHub] ${templateResult.status.message}`);
+    log(`[远程模板] ${templateResult.status.message}`);
 
     // ==========================================
     // 2. 环境初始化
@@ -435,8 +439,9 @@ export async function generateConfig(userSubLinks, globalConfig, isDebug, env) {
           subReports.push({ name: p.name || "未命名订阅", status: "warning", raw_nodes: rawCount, valid_nodes: 0, error: "没有可用节点" });
         }
       } catch (e) {
-        subReports.push({ name: p.name || "未命名订阅", status: "error", raw_nodes: 0, valid_nodes: 0, error: e.message });
-        log(`[节点加载] 机场 [${p.name}] 异常: ${e.message}`);
+        const message = errorMessage(e);
+        subReports.push({ name: p.name || "未命名订阅", status: "error", raw_nodes: 0, valid_nodes: 0, error: message });
+        log(`[节点加载] 机场 [${p.name}] 异常: ${message}`);
       }
     }));
     const failedSubs = subReports.filter(r => r.status === "error").length;
@@ -567,7 +572,7 @@ export async function generateConfig(userSubLinks, globalConfig, isDebug, env) {
     const summary = {
       success: true,
       duration_ms: Date.now() - startedAt,
-      template_source: templateResult.status.from_cache ? "kv_cache" : "github",
+      template_source: templateResult.status.mode === "kv" ? "local_builtin" : (templateResult.status.from_cache ? "remote_cache" : "remote"),
       template_hash: templateResult.status.content_hash || "",
       active_subscriptions: activeConfigs.length,
       total_nodes: allRealNodes.length,
@@ -591,6 +596,7 @@ export async function generateConfig(userSubLinks, globalConfig, isDebug, env) {
     });
 
   } catch (e) {
-    return new Response(JSON.stringify({ success: false, error: e.message, logs: [e.message] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
+    const message = errorMessage(e);
+    return new Response(JSON.stringify({ success: false, error: message, logs: [message] }), { status: 500, headers: { 'Content-Type': 'application/json' } });
   }
 }

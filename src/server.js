@@ -15,7 +15,6 @@ const env = db.envLocal;
 const HOST = process.env.HOST || '0.0.0.0';
 const PORT = Number(process.env.PORT || 3000);
 const COOKIE_SECURE = process.env.COOKIE_SECURE === 'true';
-const GITHUB_TOKEN = process.env.GITHUB_TOKEN || '';
 
 app.use(express.json({ limit: '5mb' }));
 app.use(cookieParser());
@@ -23,11 +22,6 @@ app.use(cookieParser());
 function jsonResponse(res, data, status = 200, extraHeaders = {}) {
   Object.entries(extraHeaders).forEach(([key, value]) => res.setHeader(key, value));
   return res.status(status).json(data);
-}
-
-function withSecretConfig(globalConfig) {
-  const { GITHUB_TOKEN: _ignored, ...safeConfig } = globalConfig || {};
-  return { ...safeConfig, GITHUB_TOKEN };
 }
 
 async function hashText(text) {
@@ -91,7 +85,7 @@ app.get('/api/generate', async (req, res) => {
     isDebug = isDebug && user.role === 'owner';
 
     const userSubLinks = await db.getUserSubLinks(env, user.username);
-    const globalConfig = withSecretConfig(await db.getGlobalConfig(env));
+    const globalConfig = await db.getGlobalConfig(env);
     const response = await generateConfig(userSubLinks, globalConfig, isDebug, env);
 
     if (!isDebug && response.ok) {
@@ -236,7 +230,7 @@ app.get('/api/dashboard', async (req, res) => {
   let totalUsers = 0;
 
   if (currentUser.role === 'owner') {
-    const globalConfig = withSecretConfig(await db.getGlobalConfig(env));
+    const globalConfig = await db.getGlobalConfig(env);
     templateStatus = await getTemplateCacheStatus(env, globalConfig);
     const users = await db.listAllUsers(env);
     totalUsers = users.length;
@@ -270,8 +264,7 @@ app.get('/api/settings', async (req, res) => {
   let responseData = { sub_links };
   if (currentUser.role === 'owner') {
     const globalConfig = await db.getGlobalConfig(env);
-    const { GITHUB_TOKEN: _ignored, ...safeGlobalConfig } = globalConfig;
-    responseData = { ...responseData, ...safeGlobalConfig };
+    responseData = { ...responseData, ...globalConfig };
   }
   jsonResponse(res, responseData);
 });
@@ -285,7 +278,7 @@ app.post('/api/settings', async (req, res) => {
   if (currentUser.role === 'owner') {
     const {
       REGION_KEYWORDS, BANNED_KEYWORDS, URLTEST_PARAMS, TEMPLATE_JSON,
-      GITHUB_USER, GITHUB_REPO, GITHUB_BRANCH, TEMPLATE_MODE
+      TEMPLATE_REMOTE_URL, TEMPLATE_MODE
     } = req.body;
     const currentGlobal = await db.getGlobalConfig(env);
     await db.saveGlobalConfig(env, {
@@ -293,10 +286,8 @@ app.post('/api/settings', async (req, res) => {
       BANNED_KEYWORDS: BANNED_KEYWORDS || currentGlobal.BANNED_KEYWORDS,
       URLTEST_PARAMS: URLTEST_PARAMS || currentGlobal.URLTEST_PARAMS,
       TEMPLATE_JSON: TEMPLATE_JSON || currentGlobal.TEMPLATE_JSON,
-      TEMPLATE_MODE: TEMPLATE_MODE === 'kv' ? 'kv' : 'github',
-      GITHUB_USER: GITHUB_USER !== undefined ? GITHUB_USER : currentGlobal.GITHUB_USER,
-      GITHUB_REPO: GITHUB_REPO !== undefined ? GITHUB_REPO : currentGlobal.GITHUB_REPO,
-      GITHUB_BRANCH: GITHUB_BRANCH !== undefined ? GITHUB_BRANCH : currentGlobal.GITHUB_BRANCH
+      TEMPLATE_MODE: TEMPLATE_MODE === 'kv' ? 'kv' : 'remote',
+      TEMPLATE_REMOTE_URL: TEMPLATE_REMOTE_URL !== undefined ? TEMPLATE_REMOTE_URL : currentGlobal.TEMPLATE_REMOTE_URL
     });
   }
   jsonResponse(res, { success: true });
@@ -305,30 +296,30 @@ app.post('/api/settings', async (req, res) => {
 app.get('/api/template/status', async (req, res) => {
   const currentUser = await requireOwner(req, res);
   if (!currentUser) return;
-  const globalConfig = withSecretConfig(await db.getGlobalConfig(env));
+  const globalConfig = await db.getGlobalConfig(env);
   jsonResponse(res, await getTemplateCacheStatus(env, globalConfig));
 });
 
 app.post('/api/template/check', async (req, res) => {
   const currentUser = await requireOwner(req, res);
   if (!currentUser) return;
-  const result = await getTemplate(env, withSecretConfig(await db.getGlobalConfig(env)), { forceRefresh: false });
+  const result = await getTemplate(env, await db.getGlobalConfig(env), { forceRefresh: false });
   jsonResponse(res, result.status, result.status.ok ? 200 : 500);
 });
 
 app.post('/api/template/refresh', async (req, res) => {
   const currentUser = await requireOwner(req, res);
   if (!currentUser) return;
-  const result = await getTemplate(env, withSecretConfig(await db.getGlobalConfig(env)), { forceRefresh: true });
+  const result = await getTemplate(env, await db.getGlobalConfig(env), { forceRefresh: true });
   jsonResponse(res, result.status, result.status.ok ? 200 : 500);
 });
 
 app.post('/api/template/import_builtin', async (req, res) => {
   const currentUser = await requireOwner(req, res);
   if (!currentUser) return;
-  const globalConfig = withSecretConfig(await db.getGlobalConfig(env));
-  const result = await getTemplate(env, { ...globalConfig, TEMPLATE_MODE: 'github' }, { forceRefresh: false });
-  if (!result.status.ok || !result.config) return jsonResponse(res, { error: result.status.message || 'GitHub 模板不可用' }, 500);
+  const globalConfig = await db.getGlobalConfig(env);
+  const result = await getTemplate(env, { ...globalConfig, TEMPLATE_MODE: 'remote' }, { forceRefresh: false });
+  if (!result.status.ok || !result.config) return jsonResponse(res, { error: result.status.message || '远程模板不可用' }, 500);
 
   const contentHash = await hashText(JSON.stringify(result.config));
   await db.saveBuiltinTemplate(env, {
@@ -338,7 +329,7 @@ app.post('/api/template/import_builtin', async (req, res) => {
     imported_at: new Date().toISOString(),
     imported_by: currentUser.username
   });
-  jsonResponse(res, { success: true, mode: 'kv', content_hash: contentHash, message: '已将当前 GitHub 模板导入为本地内置模板。' });
+  jsonResponse(res, { success: true, mode: 'kv', content_hash: contentHash, message: '已将当前远程模板导入为本地内置模板。' });
 });
 
 app.get('/api/template/builtin', async (req, res) => {
@@ -425,7 +416,7 @@ app.post('/api/template/rollback_builtin', async (req, res) => {
 app.post('/api/subscription/test', async (req, res) => {
   const currentUser = await requireActiveUser(req, res);
   if (!currentUser) return;
-  const globalConfig = withSecretConfig(await db.getGlobalConfig(env));
+  const globalConfig = await db.getGlobalConfig(env);
   jsonResponse(res, await testSubscription(req.body.subscription, globalConfig));
 });
 

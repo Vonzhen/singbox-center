@@ -236,19 +236,20 @@ export async function saveBuiltinTemplateBackup(env, templateData) {
 
 export async function getGlobalConfig(env) {
   const config = await env.DB.get('global:config', { type: 'json' });
-  if (!config) {
-    return {
-      REGION_KEYWORDS: { HK: ['HK', '香港'], TW: ['TW', '台湾'], SG: ['SG', '新加坡'], JP: ['JP', '日本'], US: ['US', '美国'] },
-      BANNED_KEYWORDS: '过期|剩余|网址|官网|流量|到期|重置|有效|套餐|群组|通知|地址|购买|维护',
-      URLTEST_PARAMS: { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 },
-      TEMPLATE_MODE: 'github',
-      TEMPLATE_JSON: {},
-      GITHUB_USER: '',
-      GITHUB_REPO: '',
-      GITHUB_BRANCH: 'master'
-    };
-  }
-  return config;
+  const defaultRemoteUrl = 'https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json';
+  const defaults = {
+    REGION_KEYWORDS: { HK: ['HK', '香港'], TW: ['TW', '台湾'], SG: ['SG', '新加坡'], JP: ['JP', '日本'], US: ['US', '美国'] },
+    BANNED_KEYWORDS: '过期|剩余|网址|官网|流量|到期|重置|有效|套餐|群组|通知|地址|购买|维护',
+    URLTEST_PARAMS: { url: 'https://www.gstatic.com/generate_204', interval: '3m', tolerance: 150 },
+    TEMPLATE_MODE: 'remote',
+    TEMPLATE_JSON: {},
+    TEMPLATE_REMOTE_URL: defaultRemoteUrl
+  };
+  const merged = { ...defaults, ...(config || {}) };
+  const { GITHUB_USER, GITHUB_REPO, GITHUB_BRANCH, GITHUB_TOKEN, TEMPLATE_RAW_URL, TEMPLATE_PROXY_URL, ...nextConfig } = merged;
+  nextConfig.TEMPLATE_MODE = nextConfig.TEMPLATE_MODE === 'kv' ? 'kv' : 'remote';
+  nextConfig.TEMPLATE_REMOTE_URL = nextConfig.TEMPLATE_REMOTE_URL || defaultRemoteUrl;
+  return nextConfig;
 }
 
 export async function saveGlobalConfig(env, config) {
