@@ -1,6 +1,7 @@
 {
   "log": {
-    "level": "info"
+    "level": "info",
+    "timestamp": true
   },
   "dns": {
     "servers": [
