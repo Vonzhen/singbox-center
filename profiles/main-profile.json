@@ -10,15 +10,16 @@
       { "type": "https", "tag": "Cloudflare-DNS", "detour": "🗽 节点选择", "server": "1.1.1.1" }
     ],
     "rules": [
-    { "rule_set": "geosite-category-ads-all", "action": "reject", "method": "default" },
-    { "action": "route", "clash_mode": "direct", "server": "Ali-DNS" },
-    { "action": "route", "clash_mode": "global", "server": "Cloudflare-DNS" },
+    { "rule_set": "geosite-category-ads-all", "action": "reject" },
+    { "clash_mode": "direct", "server": "Ali-DNS" },
+    { "clash_mode": "global", "server": "Cloudflare-DNS" },
+    { "rule_set": [ "geosite-cn", "geosite-privatedirect" ], "server": "Ali-DNS" },
     { "action": "evaluate", "server": "Cloudflare-DNS", "tag": "resp_cf" },
     { "action": "evaluate", "server": "Google-DNS", "tag": "resp_google" },
-    { "action": "route", "rule_set": "geoip-cn", "match_response": "resp_cf", "race": true, "server": "Ali-DNS" },
-    { "action": "route", "rule_set": "geoip-cn", "match_response": "resp_google", "race": true, "server": "Ali-DNS" },
-    { "action": "route", "match_response": "resp_cf", "action": "respond", "race": true },
-    { "action": "route", "match_response": "resp_google", "action": "respond", "race": true }
+    { "rule_set": "geoip-cn", "match_response": "resp_cf", "race": true, "server": "Ali-DNS" },
+    { "rule_set": "geoip-cn", "match_response": "resp_google", "race": true, "server": "Ali-DNS" },
+    { "match_response": "resp_cf", "action": "respond", "race": true },
+    { "match_response": "resp_google", "action": "respond", "race": true }
 ],
     "final": "Google-DNS",
     "strategy": "prefer_ipv4"
