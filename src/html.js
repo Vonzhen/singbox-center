@@ -287,7 +287,7 @@ export function renderHTML() {
           <div v-if="globalConfig.TEMPLATE_MODE !== 'kv'" class="grid grid-cols-1 gap-4">
             <div>
               <label class="block text-sm text-slate-400 mb-1">远程模板地址</label>
-              <input type="text" v-model="globalConfig.TEMPLATE_REMOTE_URL" class="input-box font-mono text-sm" placeholder="https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json">
+              <input type="text" v-model="globalConfig.TEMPLATE_REMOTE_URL" class="input-box font-mono text-sm" placeholder="https://testingcf.jsdelivr.net/gh/miozen/singbox-center@master/profiles/main-profile.json">
             </div>
           </div>
           <div v-if="templateStatus.message" class="mt-4 bg-slate-900/60 border border-slate-800 rounded-lg p-3 text-sm">
@@ -518,7 +518,7 @@ export function renderHTML() {
           builtinEditorStats: { lines: 0, size: 0 },
           sub_links: [],
           globalConfig: {
-            TEMPLATE_REMOTE_URL: "https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json",
+            TEMPLATE_REMOTE_URL: "https://testingcf.jsdelivr.net/gh/miozen/singbox-center@master/profiles/main-profile.json",
             TEMPLATE_MODE: "remote",
             BANNED_KEYWORDS: "",
             URLTEST_PARAMS: { url: "", interval: "", tolerance: 150 }
@@ -618,7 +618,7 @@ export function renderHTML() {
             });
             
             if (this.user.role === 'owner') {
-              this.globalConfig.TEMPLATE_REMOTE_URL = data.TEMPLATE_REMOTE_URL || "https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json";
+              this.globalConfig.TEMPLATE_REMOTE_URL = data.TEMPLATE_REMOTE_URL || "https://testingcf.jsdelivr.net/gh/miozen/singbox-center@master/profiles/main-profile.json";
               this.globalConfig.TEMPLATE_MODE = data.TEMPLATE_MODE || "remote";
               this.globalConfig.BANNED_KEYWORDS = data.BANNED_KEYWORDS || "";
               this.globalConfig.URLTEST_PARAMS = data.URLTEST_PARAMS || { url: "", interval: "", tolerance: 150 };
