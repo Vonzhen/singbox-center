@@ -236,7 +236,7 @@ export async function saveBuiltinTemplateBackup(env, templateData) {
 
 export async function getGlobalConfig(env) {
   const config = await env.DB.get('global:config', { type: 'json' });
-  const defaultRemoteUrl = 'https://testingcf.jsdelivr.net/gh/Vonzhen/singbox-center@master/profiles/main-profile.json';
+  const defaultRemoteUrl = 'https://testingcf.jsdelivr.net/gh/miozen/singbox-center@master/profiles/main-profile.json';
   const defaults = {
     REGION_KEYWORDS: { HK: ['HK', '香港'], TW: ['TW', '台湾'], SG: ['SG', '新加坡'], JP: ['JP', '日本'], US: ['US', '美国'] },
     BANNED_KEYWORDS: '过期|剩余|网址|官网|流量|到期|重置|有效|套餐|群组|通知|地址|购买|维护',
