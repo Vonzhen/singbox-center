@@ -20,7 +20,7 @@
     { "rule_set": "geoip-cn", "match_response": "resp_google", "race": true, "server": "Ali-DNS" },
     { "match_response": "resp_cf", "action": "respond", "race": true },
     { "match_response": "resp_google", "action": "respond", "race": true }
-],
+    ],
     "final": "Google-DNS",
     "strategy": "prefer_ipv4"
   },
